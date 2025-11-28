@@ -64,9 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <label>Email
           <input id="email" name="email" type="email" placeholder="admin@example.com" required>
         </label>
-        <label>Name
-          <input id="username" name="username" type="text" placeholder="Full name">
-        </label>
         <label>Password
           <input id="password" name="password" type="password" placeholder="••••••••" required>
         </label>

@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
   <main class="container">
     <section class="card narrow">
-      <h1 class="center">Admin Login</h1>
+      <h1 class="center">Login</h1>
       <form id="loginForm" class="stack" method="post" action="">
         <label>Email
           <input id="email" name="email" type="email" placeholder="admin@example.com" required value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">

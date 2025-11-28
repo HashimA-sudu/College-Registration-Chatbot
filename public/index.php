@@ -16,7 +16,8 @@
     <section class="card">
       <h2 class="card-title">Hello!</h2>
       <div class="row gap">
-        <a class="btn" href="chatbot.php">Start chatting</a>
+        <?php if (isset($_SESSION['admin_email'])): echo "<a class='btn ghost' href='chatbot.php'> Go to Chatbot</a>"; endif; ?>
+        <?php if (isset($_SESSION['admin_email']) && $_SESSION['admin_email'] == 'admin@admin.com'): echo '<a class="btn ghost" href="dashboard.php"> Go to Dashboard</a>'; endif; ?>
         <a class="btn ghost" href="login.php"> Login page</a>
         <a class="btn ghost" href="register.php"> Registration page</a>
       </div>

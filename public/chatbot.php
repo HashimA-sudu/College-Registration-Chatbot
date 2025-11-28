@@ -171,6 +171,7 @@ ob_end_clean();
       <div class="header-actions">
         <a class="btn btn-ghost" href="index.php">Home</a>
         <a class="btn btn-ghost" href="logout.php">Logout</a>
+        <?php if (($_SESSION['admin_email'])=='admin@admin.com'): echo '<a class="btn btn-ghost" href="dashboard.php">Dashboard</a>'; endif; ?>
       </div>
     </header>
 
