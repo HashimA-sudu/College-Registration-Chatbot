@@ -1,0 +1,11 @@
+{
+    "require": {
+        "php": ">=8.2.0",
+        "phpmailer/phpmailer": "^7.0",
+        "phpoffice/phpword": "^1.2",
+        "phpoffice/phpspreadsheet": "^1.29",
+        "maennchen/zipstream-php": "^2.4",
+        "thiagoalessio/tesseract_ocr": "^2.13",
+        "vlucas/phpdotenv": "^5.6"
+    }
+}
