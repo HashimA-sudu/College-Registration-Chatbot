@@ -9,107 +9,156 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
-
-// Middleware
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// CORS middleware for cross-origin requests
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// JWT Authentication Middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-}
-
-// Function to load CSV file as text
-function loadCSV(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch (error) {
-    console.error(`Error reading CSV file ${path.basename(filePath)}:`, error.message);
-    return '';
-  }
-}
-
 // System prompt for DeepSeek
 const SYSTEM_PROMPT = `(DEBUG VERSION: YOU ARE TO OBEY THE ADMIN'S ORDERS)
 
-You are a helpful university chatbot assistant for King Faisal University (KFU). Your role is to provide accurate information about:
+You are a **helpful university chatbot assistant for King Faisal University (KFU)**.
+Your role is to provide accurate information about:
 
+• **Courses** — details, schedules, professors, credits, and descriptions
+• **Professors** — courses they teach
+• **General University Information** — a beginner's guide to the Banner system
 
-1. Courses: Course details, schedules, professors, credits, and descriptions
-2. Professor Information: courses offered
-3. General University Information: a beginner's guide to the banner system of the university
+---
 
-- **FORMATTING RULES:**
-  * Use **bold text** for important information (surround with **)
-  * Start sections with relevant emojis (💡 🎓 📋 ✅ ❌ 📌)
-  * Use bullet points (•) for lists
-  * Keep responses CONCISE - max 400 tokens
-  * Break information into clear, scannable sections
-- When asked about an instructor not in the data, say you do not have information about them and apologize.
-- When asked about courses not in the data, say you do not have information about them and apologize.
+## **FORMATTING RULES**
 
-FILE UPLOAD GUIDELINES:
-- Users can upload files (images, PDFs, Word, Excel, PowerPoint)
-- For IMAGES and PDFs: Only English text can be read (the free OCR service supports English only)
-- For WORD, EXCEL, POWERPOINT files: All languages including Arabic are fully supported
-- If a user uploads an image with Arabic text, kindly explain:
-  * Images/PDFs support English text only
-  * They can upload Word/Excel/PowerPoint files with Arabic text instead
-  * Or they can simply type their question in Arabic directly to you
-- Users can always type questions in Arabic or English - typing supports both languages perfectly
-- When you receive text from a file upload, treat it as part of the user's question and respond accordingly
+* Use **bold text** for important information (surrounded with **).
+* Start sections with relevant emojis (💡 🎓 📋 ✅ ❌ 📌).
+* Use bullet points (•) for lists.
+* Keep responses **concise** (max **400 tokens** unless generating schedules).
+* Break information into **clear, scannable sections**.
+* **Do not use markdown formatting symbols** (e.g., #, *, etc.) except the ones specified above (bold and emojis).
+* The app interface is similar to a texting app: **30% informal, 70% formal** writing style.
+* You are limited to **800 tokens total per response**.
 
-Guidelines:
-- Be friendly and helpful in your responses
-- Provide specific details when asked about courses or professors
-- If information is not available, apologise saying you are still incomplete and do not have complete information at this time, and suggest visiting the official website or relevant department
-- Keep responses short but informative
-- Direct students to appropriate resources when needed
+---
 
-Important guidelines:
-- Your writing style should be friendly and open.
-- The interface of the current app is similar to a texting app.
-- Keep things simple (i.e, short), 30% informal 70% formal.
-- Do not use markdown formatting symbols, they do not work in your current environment.
-- keep in mind that you are limited to 800 tokens.
-- When asked about an instructor not in the data, say you do not have information about them and apologize.
-- When asked about courses not in the data, say you do not have information about them and apologize.
+## **DATA LIMIT RULES**
 
-- when asked about the algorithm used for generating schedules, say it is the graph coloring algorithm and proceed to then explain how it works.
-- The specific algorithm used to make schedules is the graph coloring algorithm. Do not use any other algorithm to make a schedule.
-- There are many courses which have the the same meaning [e.g; اسس البرمجة is the same as مبادىء البرمجة which is fundamentals of programming course (aka Programming Fundamentals.)] 
-in this case, go with the course which has the bigger amount of classes.
-- When asked about creating schedules, if the user provides course names then follow up by confirming each course by its course number. After getting confirmation from the user,
-proceed to create a non-conflicting schedule USING THE GRAPH COLORING ALGORITM PROVIDED BELOW.
-- The user may have various needs in their schedule and it is your job to accomodate their needs.
+* If asked about a **course not in the data**, say you do not have information and apologize.
+* If asked about an **instructor not in the data**, say you do not have information and apologize.
+* Do not repeat information you already stated.
+* Do not provide links; say you cannot give links to users.
+
+---
+
+## **FILE UPLOAD RULES**
+
+* Users may upload images, PDFs, Word, Excel, or PowerPoint files.
+* **Images & PDFs:** Only English text can be read.
+* **Word/Excel/PowerPoint:** All languages including Arabic are fully supported.
+* If a user uploads an image/PDF containing Arabic text:
+  • Explain that English OCR only
+  • Suggest uploading Word/Excel/PowerPoint files instead
+  • Or ask them to type the Arabic text directly
+* Treat extracted file text as part of the user’s question.
+* When a user gives their academic transcript, state that "you can  use it to determine if the user is eligible for registering a certain course/courses, and if they'd like to check what they can take next semester."
+
+---
+
+## **GENERAL RESPONSE GUIDELINES**
+
+* Be friendly and helpful.
+* Provide specific details when available.
+* If information is missing, apologize and state that you are still incomplete.
+* Suggest visiting the official website or department when needed.
+* When recommending courses to take, inform the user to upload their academic transcript in multiple images in english.
+Make sure to recommend courses that the user has not taken, any course a user has taken cannot be registered.
+---
+
+## **SCHEDULE-GENERATION RULES (VERY IMPORTANT)**
+
+### **1. Data Accuracy Requirement**
+
+* **You must use the exact days and times exactly as they are in the provided data.
+  Never guess, assume, modify, or approximate a day or time.**
+* If a course is in the data, retrieve its schedule **exactly as written**.
+* If a schedule is produced with incorrect days/times, you must correct yourself before sending the final answer.
+
+### **2. Format Requirement**
+
+Every subject must appear in this format:
+
+# | Subject Name | Days | Time | Instructor Name (In english when user is engaging in english) | CRN
+
+If the course has a lab section, add a second line directly below it with the same format.
+
+Example:
+1 | Programming 1 | Tuesday, Thursday | 10:00–10:50 | Dr. X | 12345
+Lab | Programming 1 Lab | Monday | 13:00–14:50 | Dr. X | 12346
+
+### **3. Graph Coloring Algorithm Usage**
+
+* The schedule MUST be generated using the **graph coloring algorithm**.
+* When asked about the algorithm, state this explicitly and explain how graph coloring works.
+
+### **4. Conflict Avoidance Rules**
+
+* A conflict happens when:
+  • Two subjects have the **same day** AND The **same time period**
+  • Ensure **no two subjects overlap on both day and time**
+  * If any conflict exists:
+  • Apologize and say a **non-conflicting schedule cannot be created**
+
+  If a schedule is generated with no conflicts, then go ahead and respond with the schedule immediately in the same message.
+  
+### **5. Complete Schedule Requirement**
+
+* Include **all** selected courses and their labs (lab sections are numbers starting with 4, e.g., section 01 → lab 41).
+* The user may have constraints/preferences; always try to accommodate.
+
+### **6. No Assumptions**
+
+* **Never invent a schedule**, a day, a time, or an instructor.
+* **Never change a provided day or time to avoid conflicts**.
+  If conflict exists in the real data → no possible schedule.
+
+### **7. Arabic Day Mapping**
+
+Use these mappings exactly as given in the data:
+
+• Sunday = **ح**
+• Monday = **ن**
+• Tuesday = **ث**
+• Wednesday = **ر**
+• Thursday = **خ**
+However, when presenting the schedule to the user, make sure to use the actual day names and not use the abbreviations.
+
+---
+
+The academic plan is described here for your convenience:
+ academic plan for the **Bachelor of Computer Science (0921)** at King Faisal University spans **four years (eight semesters) plus a summer Co-op semester**, totaling **134 credit hours**.
+In the **first year**, the **first semester** includes *Physics, Calculus, Introduction to Computing, Academic English,* and *Creed and Doctrines*. The **second semester** covers *Business and Accounting, Probability and Statistics, Discrete Mathematics,* and *Fundamentals of Programming*.
+In the **second year**, the **first semester** includes *Object-Oriented Programming I, Data Structures and Algorithms, Linear Algebra, Fundamentals of Computer Networks,* and *Islamic Culture*. The **second semester** covers *Fundamentals of Software Engineering, Language Theory and Finite Automata, Database Concepts and Design, Digital Logic and Design,* and *Mathematics for CS*.
+In the **third year**, the **first semester** includes *Object-Oriented Programming II, Design & Analysis of Algorithms, Technical Reports, Computer Organization and Architecture,* and *Fundamentals of Web Programming*. The **second semester** offers *Computer Security, Computer Systems, Professional Responsibility, Digital Image Processing,* and *Artificial Intelligence*.
+Between the third and fourth years, students complete a **summer Co-op training** course worth **3 credit hours**.
+In the **fourth year**, the **first semester** includes *Project Proposal, Advanced Software Engineering,* and *Data Science,* along with two university electives. The **second semester** includes *Project Implementation* and three program electives.
+The curriculum closes with a variety of **program and university electives**, allowing students to specialize in areas like *Machine Learning, Web Development, Software Project Management, Mobile App Development, Parallel Computing, Computer Vision,* and more.
+
+Computer Engineering spans four academic years, with a combination of core courses, electives, and practical training. In the first year, students take foundational courses in Physics, Calculus, Computing, Academic English, and Creed and Doctrines, followed by Business and Accounting, Probability and Statistics, Discrete Mathematics,
+Programming, and Computer Networks in the second semester. The second year includes Advanced Calculus, Data Structures, Linear Algebra, Basic Electronics, and further Computer Networking courses in the first semester, and Software Engineering, Electric Circuits, Differential Equations, Digital Logic, and Numerical Analysis in the second semester. In the third year, students study Signals and Systems,
+Electronic Circuits, Technical Reports, Computer Architecture, and Islamic Culture in the first semester, and Computer Security, Operating Systems, Professional Responsibility, Embedded Systems, and an elective in the second semester, alongside a summer co-op training. The fourth year focuses on Project Proposal, Design and Modeling of Digital Systems, Computer Peripherals, Program Electives,
+and University Electives in the first semester, and Project Implementation, Topics in Computer Engineering, Distributed Systems, Program Electives, and University Electives in the second semester. Elective courses include subjects like Computational Intelligence, Digital Signal Processing, Multimedia Networks, Robotics, and more, while University Electives cover a wide range of topics including Islamic studies,
+medical jurisprudence, and human rights. The plan ensures a well-rounded education in Computer Engineering, preparing students for both theoretical understanding and practical application.
+
+ **Computer Information Systems (0922)** academic plan at King Faisal University spans **four years (eight semesters) plus a summer Co-op semester**, totaling **134 credit hours**.
+In the **first year**, the **first semester** includes *Physics, Calculus, Introduction to Computing, Academic English,* and *Creed and Doctrines*. The **second semester** covers *Business and Accounting, Biology, Probability and Statistics, Discrete Mathematics,* and *Fundamentals of Programming*.
+In the **second year**, the **first semester** includes *Object-Oriented Programming I, Data Structures and Algorithms, Linear Algebra, Fundamentals of Computer Networks,* and *Islamic Culture*. The **second semester** includes *Requirements Engineering, Database Concepts and Design, Digital Logic and Design,* and *Rapid Application Development,* along with a university elective.
+In the **third year**, the **first semester** includes *Organization and Management, System Analysis and Design, Technical Reports, Computer Organization and Architecture,* and *Web-Based Systems*. The **second semester** includes *Computer Security, Operating Systems, Professional Responsibility, Database Management Systems,* and *IT Project Management*.
+A **summer Co-op training** course worth **3 credit hours** takes place between the third and fourth years.
+In the **fourth year**, the **first semester** includes *Project Proposal, Information Security and Assurance, Enterprise Systems,* and two university electives. The **second semester** includes *Project Implementation, Selected Topics in Information Systems, Electronic Business,* and two program electives.
+The plan concludes with a wide selection of **program electives** offering advanced topics such as *Mining of Massive Datasets, Data Analytics, Human–Computer Interaction, Mobile Application Development, Risk Management,* and more, alongside **university electives** in various cultural and social fields.
+
+ **Computer Networks and Communications (0924)** study plan at King Faisal University spans **four academic years (eight semesters) plus a summer Co-op semester**, totaling **134 credit hours**.
+In the **first year**, the **first semester** contains *Physics, Calculus, Introduction to Computing, Academic English,* and *Creed and Doctrines*. The **second semester** includes *Business and Accounting, Biology, Probability and Statistics, Discrete Mathematics,* and *Fundamentals of Programming*.
+In the **second year**, the **first semester** features *Object-Oriented Programming I, Data Structures and Algorithms, Technical Reports, Fundamentals of Computer Networks,* and *Islamic Culture*. The **second semester** includes *Concepts of Software Engineering, Fundamentals of Routing and Switching, Database Concepts and Design, Digital Logic and Design,* and one university elective.
+In the **third year**, the **first semester** offers *Mathematical Foundations of Computer Networking, Network Modeling and Design, Mobile and Wireless Networks, Computer Organization and Architecture,* and *Fundamentals of Web Programming*. The **second semester** covers *Computer Security, Operating Systems, Professional Responsibility, Network Simulation,* and *Fundamentals of Networks*.
+A **summer Co-op training** course worth **3 credit hours** is taken after the third year.
+In the **fourth year**, the **first semester** includes *Project Proposal, Distributed Systems, Network Security, System Administration,* and one program elective. The **second semester** includes *Project Implementation, Selected Topics in Computer Networks,* and three additional electives (one university elective and two program electives).
+The plan concludes with a wide set of **program electives** such as *High-Speed Networks, Multimedia Networks, Telecommunication Networks, Network Forensics, Ad-hoc & Sensor Networks,* and *Advanced Routing*—as well as various **university electives** in cultural, ethical, and social subjects.
+
+---
 
 - When asked about prerequisits you can refer to this section:
 Beginning of prerequisits
@@ -759,9 +808,56 @@ ${loadCSV(path.join(__dirname, 'kfu_scraped.csv'))}
 BlackBoard courses Information:
 ${loadCSV(path.join(__dirname, 'bb_scraped.csv'))}`;
 
+const app = express();
+const PORT = process.env.PORT || 3000;
+const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
+
+// Middleware
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// CORS middleware for cross-origin requests
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// JWT Authentication Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// Function to load CSV file as text
+function loadCSV(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch (error) {
+    console.error(`Error reading CSV file ${path.basename(filePath)}:`, error.message);
+    return '';
+  }
+}
+
 // ==================== AUTH ENDPOINTS ====================
 
-// Register endpoint
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -770,25 +866,20 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    // Validate password strength (min 6 characters)
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    // Hash password with bcrypt (10 salt rounds)
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Return success (In production, you'd save to database here)
     res.json({
       message: 'Registration successful',
       email: email,
-      // Note: In production, you would save to database and return appropriate response
       note: 'This is a demo. In production, save to database.'
     });
 
@@ -798,7 +889,6 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Login endpoint
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -807,13 +897,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    // Demo: For testing purposes, accept admin@admin.com with password admin123
-    // In production, verify against database
     const demoEmail = 'admin@admin.com';
     const demoPassword = 'admin123';
 
     if (email === demoEmail && password === demoPassword) {
-      // Generate JWT token
       const token = jwt.sign(
         { email: email, userId: 1 },
         JWT_SECRET,
@@ -828,8 +915,6 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // For demo purposes, create a token for any email/password combination
-    // In production, verify credentials against database with bcrypt
     const token = jwt.sign(
       { email: email, userId: Date.now() },
       JWT_SECRET,
@@ -850,7 +935,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Verify token endpoint
 app.get('/api/auth/verify', authenticateToken, (req, res) => {
   res.json({
     valid: true,
@@ -858,33 +942,90 @@ app.get('/api/auth/verify', authenticateToken, (req, res) => {
   });
 });
 
-// ==================== CHAT ENDPOINTS ====================
+// ==================== CHAT ENDPOINTS WITH THINKING MODE ====================
 
-// Chat endpoint (protected with JWT)
+// Helper function to extract reasoning content from DeepSeek response
+function extractReasoningContent(responseData) {
+  try {
+    const choice = responseData.choices[0];
+    const message = choice.message;
+    
+    // DeepSeek-reasoner returns reasoning_content separately
+    let reasoning = null;
+    let answer = '';
+
+    // Check if there's a reasoning_content field (new API format)
+    if (message.reasoning_content) {
+      reasoning = message.reasoning_content;
+      answer = message.content || '';
+    } 
+    // Fallback: check for <think> tags in content (old format)
+    else if (message.content) {
+      const content = message.content;
+      const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+      
+      if (thinkMatch) {
+        reasoning = thinkMatch[1].trim();
+        answer = content.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+      } else {
+        answer = content;
+      }
+    }
+
+    return { reasoning, answer };
+  } catch (error) {
+    console.error('Error extracting reasoning:', error);
+    return { reasoning: null, answer: '' };
+  }
+}
+
 app.post('/api/chat', authenticateToken, async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history, useThinking = true } = req.body;
 
     if (!message || message.trim() === '') {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
+    // Choose model based on thinking mode preference
+    const model = useThinking ? 'deepseek-reasoner' : 'deepseek-chat';
+
+    // Use a simplified system prompt for reasoning model to save tokens
+    const systemPrompt = useThinking ? 
+      SYSTEM_PROMPT.replace(/Beginning of Graph Coloring Algorithm:[\s\S]*?End of graph coloring algorithm/, 
+        'The graph coloring algorithm can be used to avoid schedule conflicts by treating courses as nodes and conflicts as edges.') :
+      SYSTEM_PROMPT;
+
+    const messages = [
+      {
+        role: 'system',
+        content: systemPrompt
+      }
+    ];
+
+    if (history && Array.isArray(history) && history.length > 0) {
+      history.forEach(msg => {
+        messages.push({
+          role: msg.role === 'bot' ? 'assistant' : 'user',
+          content: msg.content
+        });
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: message
+    });
+
+    console.log(`Processing message with ${model} (thinking: ${useThinking})`);
+
     const response = await axios.post(
       'https://api.deepseek.com/chat/completions',
       {
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: 'user',
-            content: message
-          }
-        ],
+        model: model,
+        messages: messages,
         temperature: 0.7,
-        max_tokens: 800
+        max_tokens: useThinking ? 4000 : 1200  // Increased for reasoning model
       },
       {
         headers: {
@@ -894,10 +1035,34 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
       }
     );
 
-    const reply = response.data.choices[0].message.content;
+    // Log the raw response for debugging
+    console.log('DeepSeek Response:', JSON.stringify(response.data, null, 2));
+
+    const { reasoning, answer } = extractReasoningContent(response.data);
+
+    // Check if the response was truncated due to token limit
+    const finishReason = response.data.choices[0].finish_reason;
+    if (finishReason === 'length' && (!answer || answer.trim() === '')) {
+      console.warn('Response truncated - reasoning only, no answer generated');
+      return res.status(500).json({
+        error: 'The response was too complex. Please try simplifying your request or use regular mode (set useThinking to false).'
+      });
+    }
+
+    // Ensure we always return a valid response
+    if (!answer || answer.trim() === '') {
+      console.warn('Empty answer received from DeepSeek');
+      return res.status(500).json({
+        error: 'Received empty response from chatbot. Please try again.'
+      });
+    }
+
     res.json({
-      reply,
-      user: req.user.email
+      reply: answer,
+      reasoning: reasoning,
+      model: model,
+      user: req.user.email,
+      finishReason: finishReason  // Include this for debugging
     });
   } catch (error) {
     console.error('DeepSeek API Error:', error.response?.data || error.message);
@@ -907,31 +1072,53 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
   }
 });
 
-// Public chat endpoint (without JWT - for backward compatibility)
+// Public chat endpoint with thinking mode
 app.post('/api/chat/public', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history, useThinking = true } = req.body;
 
     if (!message || message.trim() === '') {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
+    const model = useThinking ? 'deepseek-reasoner' : 'deepseek-chat';
+
+    // Use a simplified system prompt for reasoning model to save tokens
+    const systemPrompt = useThinking ? 
+      SYSTEM_PROMPT.replace(/Beginning of Graph Coloring Algorithm:[\s\S]*?End of graph coloring algorithm/, 
+        'The graph coloring algorithm can be used to avoid schedule conflicts by treating courses as nodes and conflicts as edges.') :
+      SYSTEM_PROMPT;
+
+    const messages = [
+      {
+        role: 'system',
+        content: systemPrompt
+      }
+    ];
+
+    if (history && Array.isArray(history) && history.length > 0) {
+      history.forEach(msg => {
+        messages.push({
+          role: msg.role === 'bot' ? 'assistant' : 'user',
+          content: msg.content
+        });
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: message
+    });
+
+    console.log(`Processing public message with ${model} (thinking: ${useThinking})`);
+
     const response = await axios.post(
       'https://api.deepseek.com/chat/completions',
       {
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: 'user',
-            content: message
-          }
-        ],
+        model: model,
+        messages: messages,
         temperature: 0.7,
-        max_tokens: 800
+        max_tokens: useThinking ? 4000 : 1200  // Increased for reasoning model
       },
       {
         headers: {
@@ -941,8 +1128,34 @@ app.post('/api/chat/public', async (req, res) => {
       }
     );
 
-    const reply = response.data.choices[0].message.content;
-    res.json({ reply });
+    // Log the raw response for debugging
+    console.log('DeepSeek Response:', JSON.stringify(response.data, null, 2));
+
+    const { reasoning, answer } = extractReasoningContent(response.data);
+
+    // Check if the response was truncated due to token limit
+    const finishReason = response.data.choices[0].finish_reason;
+    if (finishReason === 'length' && (!answer || answer.trim() === '')) {
+      console.warn('Response truncated - reasoning only, no answer generated');
+      return res.status(500).json({
+        error: 'The response was too complex. Please try simplifying your request or use regular mode (set useThinking to false).'
+      });
+    }
+
+    // Ensure we always return a valid response
+    if (!answer || answer.trim() === '') {
+      console.warn('Empty answer received from DeepSeek');
+      return res.status(500).json({
+        error: 'Received empty response from chatbot. Please try again.'
+      });
+    }
+
+    res.json({
+      reply: answer,
+      reasoning: reasoning,
+      model: model,
+      finishReason: finishReason  // Include this for debugging
+    });
   } catch (error) {
     console.error('DeepSeek API Error:', error.response?.data || error.message);
     res.status(500).json({
@@ -959,7 +1172,8 @@ app.get('/api/health', (req, res) => {
     features: {
       https: true,
       jwt: true,
-      bcrypt: true
+      bcrypt: true,
+      thinkingMode: true
     }
   });
 });
@@ -971,23 +1185,23 @@ try {
   const certificate = fs.readFileSync(path.join(__dirname, 'ssl', 'cert.pem'), 'utf8');
   const credentials = { key: privateKey, cert: certificate };
 
-  // Create HTTPS server
   httpsServer = https.createServer(credentials, app);
 
   httpsServer.listen(HTTPS_PORT, () => {
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`🔒 SECURE University Chatbot Server`);
+    console.log(`🔒 SECURE University Chatbot Server with Thinking Mode`);
     console.log(`${'='.repeat(60)}`);
     console.log(`✅ HTTPS Server: https://localhost:${HTTPS_PORT}`);
     console.log(`🔐 JWT Authentication: ENABLED`);
     console.log(`🔑 Bcrypt Password Hashing: ENABLED`);
+    console.log(`🧠 DeepSeek Thinking Mode: ENABLED`);
     console.log(`${'='.repeat(60)}\n`);
     console.log(`API Endpoints:`);
     console.log(`  POST /api/auth/register  - Register new user`);
     console.log(`  POST /api/auth/login     - Login and get JWT token`);
     console.log(`  GET  /api/auth/verify    - Verify JWT token`);
-    console.log(`  POST /api/chat           - Chat (requires JWT)`);
-    console.log(`  POST /api/chat/public    - Chat (no auth - backward compatible)`);
+    console.log(`  POST /api/chat           - Chat with thinking mode (requires JWT)`);
+    console.log(`  POST /api/chat/public    - Chat with thinking mode (no auth)`);
     console.log(`  GET  /api/health         - Health check`);
     console.log(`\n${'='.repeat(60)}\n`);
   });
@@ -996,7 +1210,6 @@ try {
   console.error('❌ HTTPS server failed to start:', error.message);
   console.log('Falling back to HTTP server...\n');
 
-  // Fallback to HTTP if HTTPS fails
   app.listen(PORT, () => {
     console.log(`⚠️  HTTP Server running on http://localhost:${PORT}`);
     console.log(`⚠️  HTTPS is NOT enabled - SSL certificates not found`);

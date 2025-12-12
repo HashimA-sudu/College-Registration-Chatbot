@@ -150,6 +150,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Get current conversation ID
         $current_conv_id = $_SESSION['current_conversation_id'] ?? 1;
 
+        // Get recent conversation history from CURRENT conversation (last 10 messages)
+        $history = [];
+        $histSql = "SELECT role, content FROM user_inquiries 
+            WHERE user_id = ? AND conversation_id = ?
+            ORDER BY message_number DESC, id DESC 
+            LIMIT 10";
+        if ($stmt = $conn->prepare($histSql)) {
+             $stmt->bind_param('ii', $user_id, $current_conv_id);
+             $stmt->execute();
+             $res = $stmt->get_result();
+             while ($row = $res->fetch_assoc()) {
+            // Add to beginning since we're getting DESC order
+                array_unshift($history, [
+                 'role' => $row['role'],
+                 'content' => $row['content']
+        ]);
+    }
+    $stmt->close();
+}
+        
         // Insert user message
         $ins = "INSERT INTO user_inquiries (user_id, conversation_id, message_number, role, content, created_at, day) VALUES (?, ?, ?, 'user', ?, NOW(), DAYNAME(NOW()))";
         if (!($stmt = $conn->prepare($ins))) {
@@ -163,11 +183,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt->close();
 
-        // Call Node API with JWT
+        // Call Node API with JWT and conversation history
         require_once __DIR__ . '/view/jwt_helper.php';
         $reply = "I apologize, but I'm having trouble connecting to my knowledge base. Please try again.";
         $nodeUrl = 'https://localhost:3443/api/chat/public';
-        $payload = json_encode(['message' => $message]);
+        
+        // Include both current message and history
+        $payload = json_encode([
+            'message' => $message,
+            'history' => $history
+        ]);
 
         $jwtToken = getStoredJWTToken();
         $headers = "Content-Type: application/json\r\n";
@@ -192,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ];
 
         $context = stream_context_create($opts);
-        error_log('Chatbot: Sending request to ' . $nodeUrl);
+        error_log('Chatbot: Sending request to ' . $nodeUrl . ' with ' . count($history) . ' history messages');
         $startTime = microtime(true);
 
         $resp = @file_get_contents($nodeUrl, false, $context);
@@ -294,7 +319,7 @@ ob_end_clean();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <?php include __DIR__ . '/view/head.php'; 
+  <?php 
   //switch page into dark mode when its 1
 $stmt2 = $conn->prepare("SELECT dark_mode FROM admin_users WHERE id = ? LIMIT 1");
 if ($stmt2) {
