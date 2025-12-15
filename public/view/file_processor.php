@@ -56,12 +56,15 @@ function extractTextFromFile($file) {
                 break;
 
             case 'pdf':
+                $result = extractFromPDF($filePath);
+                break;
+
             case 'jpg':
             case 'jpeg':
             case 'png':
             case 'gif':
             case 'bmp':
-                $result = extractFromImageOrPDF($filePath, $extension);
+                $result = extractFromImage($filePath, $extension);
                 break;
 
             case 'doc':
@@ -107,41 +110,187 @@ function extractFromText($filePath) {
 }
 
 /**
- * Extract text from images or PDF using OCR.space API (FREE)
+ * Extract text from PDF using OCR.space API - PROCESSES ALL PAGES
  */
-function extractFromImageOrPDF($filePath, $extension) {
+function extractFromPDF($filePath) {
     // Check if curl is available
     if (!function_exists('curl_init')) {
         return ['success' => false, 'text' => '', 'error' => 'CURL extension not enabled in PHP'];
     }
 
-    // Check file size (API limit is 1MB for free tier)
+    // Check file size
     $fileSize = filesize($filePath);
+    // Note: OCR API has a 1MB limit, but we'll try anyway since the main file limit is 10MB
+    $sizeWarning = '';
     if ($fileSize > 1024 * 1024) {
-        return ['success' => false, 'text' => '', 'error' => 'File too large for OCR (max 1MB). Try a smaller image.'];
+        $sizeWarning = "⚠️ Note: This PDF is larger than 1MB. OCR processing may fail or be incomplete. Consider splitting the PDF into smaller files if issues occur.\n\n";
+        error_log("PDF size warning: File is " . round($fileSize/1024/1024, 2) . " MB (OCR API limit is 1MB)");
     }
 
     // Get API key from environment (.env file)
-    $apiKey = $_ENV['OCR_API_KEY'] ?? $_SERVER['OCR_API_KEY'] ?? 'helloworld'; // 'helloworld' is the demo key
+    $apiKey = $_ENV['OCR_API_KEY'] ?? $_SERVER['OCR_API_KEY'] ?? 'helloworld';
     error_log("Using OCR API key: " . substr($apiKey, 0, 5) . "... (length: " . strlen($apiKey) . ")");
-    error_log("File size: " . $fileSize . " bytes (" . round($fileSize/1024, 2) . " KB)");
+    error_log("PDF file size: " . $fileSize . " bytes (" . round($fileSize/1024, 2) . " KB)");
 
     // Use OCR.space API
     $apiUrl = 'https://api.ocr.space/parse/image';
 
     $fileData = file_get_contents($filePath);
     if ($fileData === false) {
-        return ['success' => false, 'text' => '', 'error' => 'Failed to read file'];
+        return ['success' => false, 'text' => '', 'error' => 'Failed to read PDF file'];
     }
 
     $base64 = base64_encode($fileData);
 
-    // Determine correct MIME type for base64 data URI
-    $mimeType = ($extension === 'pdf') ? 'application/pdf' : 'image/' . $extension;
+    $postData = [
+        'base64Image' => 'data:application/pdf;base64,' . $base64,
+        'language' => 'eng',
+        'isOverlayRequired' => 'false',
+        'detectOrientation' => 'true',
+        'scale' => 'true',
+        'OCREngine' => '2',
+        'isTable' => 'true',  // Better formatting for tables
+        'apikey' => $apiKey
+    ];
+
+    error_log("Sending PDF to OCR API for processing...");
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $apiUrl);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 120); // Longer timeout for multi-page PDFs
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'apikey: ' . $apiKey
+    ]);
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false) {
+        return ['success' => false, 'text' => '', 'error' => 'CURL error: ' . $curlError];
+    }
+
+    if ($httpCode !== 200) {
+        error_log("OCR API HTTP error: $httpCode - Response: " . substr($response, 0, 500));
+        return ['success' => false, 'text' => '', 'error' => "OCR API returned HTTP $httpCode"];
+    }
+
+    error_log("OCR API response received (length: " . strlen($response) . ")");
+    $data = json_decode($response, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("OCR API JSON parse error: " . json_last_error_msg());
+        error_log("Raw response: " . substr($response, 0, 1000));
+        return ['success' => false, 'text' => '', 'error' => 'Invalid JSON response from OCR API'];
+    }
+
+    // Check if we have parsed results
+    if (!isset($data['ParsedResults']) || !is_array($data['ParsedResults'])) {
+        $errorMsg = $data['ErrorMessage'][0] ?? $data['ErrorMessage'] ?? 'OCR failed';
+        error_log("OCR API error: " . $errorMsg);
+        
+        // Check if it's a language-related error
+        if (strpos($errorMsg, 'language') !== false || strpos($errorMsg, 'E201') !== false) {
+            return ['success' => false, 'text' => '', 'error' =>
+                "⚠️ **PDF Processing Notice**\n\n" .
+                "The free OCR service supports **English text only** for PDFs.\n\n" .
+                "💡 **Your options:**\n\n" .
+                "• Upload **PDFs with English text**\n" .
+                "• Upload **Word, Excel, or PowerPoint files** (supports Arabic & English)\n" .
+                "• **Type your question directly** in Arabic or English\n\n" .
+                "📝 Typing is the best option for Arabic content!"
+            ];
+        }
+
+        return ['success' => false, 'text' => '', 'error' => "OCR error: $errorMsg"];
+    }
+
+    // Process ALL pages from the ParsedResults array
+    $allText = '';
+    $pageCount = count($data['ParsedResults']);
+    
+    error_log("PDF contains $pageCount page(s)");
+    
+    foreach ($data['ParsedResults'] as $index => $pageResult) {
+        $pageNumber = $index + 1;
+        
+        if (isset($pageResult['ParsedText'])) {
+            $pageText = trim($pageResult['ParsedText']);
+            
+            if (!empty($pageText)) {
+                // Add page separator for multi-page PDFs
+                if ($pageCount > 1) {
+                    $allText .= "\n--- Page $pageNumber ---\n\n";
+                }
+                $allText .= $pageText . "\n";
+                
+                error_log("Page $pageNumber: Extracted " . strlen($pageText) . " characters");
+            } else {
+                error_log("Page $pageNumber: No text found (blank page or image-only)");
+            }
+        } else {
+            error_log("Page $pageNumber: No ParsedText field in result");
+        }
+    }
+
+    $allText = trim($allText);
+    
+    if (empty($allText)) {
+        return ['success' => false, 'text' => '', 'error' => 'No text could be extracted from PDF. The file may contain only images or be blank.'];
+    }
+
+    error_log("PDF OCR success: Extracted total of " . strlen($allText) . " characters from $pageCount page(s)");
+    
+    // Prepend size warning if file was large
+    if (!empty($sizeWarning)) {
+        $allText = $sizeWarning . $allText;
+    }
+    
+    return ['success' => true, 'text' => $allText, 'error' => ''];
+}
+
+/**
+ * Extract text from images using OCR.space API
+ */
+function extractFromImage($filePath, $extension) {
+    // Check if curl is available
+    if (!function_exists('curl_init')) {
+        return ['success' => false, 'text' => '', 'error' => 'CURL extension not enabled in PHP'];
+    }
+
+    // Check file size
+    $fileSize = filesize($filePath);
+    // Note: OCR API has a 1MB limit, but we'll try anyway since the main file limit is 10MB
+    $sizeWarning = '';
+    if ($fileSize > 1024 * 1024) {
+        $sizeWarning = "⚠️ Note: This image is larger than 1MB. OCR processing may fail or be incomplete. Consider using a smaller image if issues occur.\n\n";
+        error_log("Image size warning: File is " . round($fileSize/1024/1024, 2) . " MB (OCR API limit is 1MB)");
+    }
+
+    // Get API key from environment (.env file)
+    $apiKey = $_ENV['OCR_API_KEY'] ?? $_SERVER['OCR_API_KEY'] ?? 'helloworld';
+    error_log("Using OCR API key: " . substr($apiKey, 0, 5) . "... (length: " . strlen($apiKey) . ")");
+    error_log("Image file size: " . $fileSize . " bytes (" . round($fileSize/1024, 2) . " KB)");
+
+    // Use OCR.space API
+    $apiUrl = 'https://api.ocr.space/parse/image';
+
+    $fileData = file_get_contents($filePath);
+    if ($fileData === false) {
+        return ['success' => false, 'text' => '', 'error' => 'Failed to read image file'];
+    }
+
+    $base64 = base64_encode($fileData);
+    $mimeType = 'image/' . $extension;
 
     $postData = [
         'base64Image' => 'data:' . $mimeType . ';base64,' . $base64,
-        'language' => 'eng', // English
+        'language' => 'eng',
         'isOverlayRequired' => 'false',
         'detectOrientation' => 'true',
         'scale' => 'true',
@@ -186,6 +335,12 @@ function extractFromImageOrPDF($filePath, $extension) {
     if (isset($data['ParsedResults'][0]['ParsedText'])) {
         $text = $data['ParsedResults'][0]['ParsedText'];
         error_log("OCR success: Extracted " . strlen($text) . " characters");
+        
+        // Prepend size warning if file was large
+        if (!empty($sizeWarning)) {
+            $text = $sizeWarning . $text;
+        }
+        
         return ['success' => true, 'text' => trim($text), 'error' => ''];
     } else {
         $errorMsg = $data['ErrorMessage'][0] ?? $data['ErrorMessage'] ?? 'OCR failed';
@@ -196,9 +351,9 @@ function extractFromImageOrPDF($filePath, $extension) {
         if (strpos($errorMsg, 'language') !== false || strpos($errorMsg, 'E201') !== false) {
             return ['success' => false, 'text' => '', 'error' =>
                 "⚠️ **Image Processing Notice**\n\n" .
-                "The free OCR service supports **English text only** for images and PDFs.\n\n" .
+                "The free OCR service supports **English text only** for images.\n\n" .
                 "💡 **Your options:**\n\n" .
-                "• Upload **images/PDFs with English text**\n" .
+                "• Upload **images with English text**\n" .
                 "• Upload **Word, Excel, or PowerPoint files** (supports Arabic & English)\n" .
                 "• **Type your question directly** in Arabic or English\n\n" .
                 "📝 Typing is the best option for Arabic content!"
