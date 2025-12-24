@@ -1,7 +1,7 @@
 <?php
 session_start();
 // Require admin login
-if ($_SESSION['admin_email'] != 'test@gmail.com') {
+if ($_SESSION['admin_email'] != 'admin@ad.com') {
     header('Location: login.php');
     exit();
 }
