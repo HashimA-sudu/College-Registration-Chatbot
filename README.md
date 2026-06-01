@@ -35,7 +35,7 @@ The system was built as a capstone project for the Bachelor of Science in Comput
 
 **Database:** MySQL (via XAMPP)
 
-**AI:** DeepSeek API
+**LLM:** DeepSeek API
 
 **Scraping:** Python, BeautifulSoup, PDFPlumber
 
